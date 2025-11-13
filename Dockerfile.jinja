@@ -7,13 +7,9 @@ COPY server.py .
 COPY thinkube_theme.py .
 COPY entrypoint.sh .
 
-# Copy Thinkube icons
+# Copy Thinkube icons (pre-generated)
 RUN mkdir -p /app/icons
-COPY tk_ai.svg /app/icons/
-# Convert SVG to PNG for favicon compatibility
-RUN apt-get update && apt-get install -y --no-install-recommends imagemagick && \
-    convert -background none -resize 32x32 /app/icons/tk_ai.svg /app/icons/tk_ai.png && \
-    apt-get remove -y imagemagick && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+COPY tk_ai.svg tk_ai.png /app/icons/
 
 # Copy and install requirements
 COPY requirements.txt .
