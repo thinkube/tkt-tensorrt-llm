@@ -1,6 +1,4 @@
-FROM nvcr.io/nvidia/tensorrt-llm/release:1.2.0rc2
-
-WORKDIR /app
+FROM {{ container_registry }}/library/tensorrt-llm-base:1.2.0rc2
 
 # Copy application code
 COPY server.py .
@@ -8,19 +6,23 @@ COPY thinkube_theme.py .
 COPY entrypoint.sh .
 
 # Copy Thinkube icons (pre-generated)
-RUN mkdir -p /app/icons
 COPY tk_ai.svg tk_ai.png /app/icons/
 
-# Copy and install requirements
+# Copy and install any additional template-specific requirements
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Model configuration from template
-ENV MODEL_ID="{{ model_id }}"
-ENV HF_TOKEN="${HF_TOKEN}"
+RUN if [ -s requirements.txt ]; then pip install --no-cache-dir -r requirements.txt; fi
 
 # Make entrypoint executable
 RUN chmod +x entrypoint.sh
+
+# The base image already has:
+# - Working directory set to /app
+# - Icons directory created
+# - Common dependencies pre-installed (openai, gradio)
+# - TensorRT-LLM runtime and tools
+
+# Model ID and HF token passed as environment variables at deployment time
+# Not baked into the image to enable image reuse across deployments
 
 # Expose ports: 7860 for Gradio, 8355 for TensorRT-LLM API
 EXPOSE 7860 8355
