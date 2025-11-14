@@ -15,7 +15,17 @@ spec:
       health: /health
       test:
         enabled: false  # Testing ML models requires GPU, skip in CI/CD
-  
+      volumeMounts:
+        - name: models
+          mountPath: /models
+          readOnly: true  # Inference pods only read models
+
+  # Shared model storage
+  volumes:
+    - name: models
+      persistentVolumeClaim:
+        claimName: thinkube-models  # Shared models PVC (JuiceFS RWX)
+
   # Routing configuration
   routes:
     - path: /

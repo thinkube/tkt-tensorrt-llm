@@ -1,10 +1,14 @@
 #!/bin/bash
 set -e
 
+# Use shared model storage (JuiceFS PVC mounted at /models)
+export HF_HOME="/models/huggingface"
+
 echo "=== TensorRT-LLM Inference Server Startup ==="
 echo "Model: {{ model_id }}"
+echo "Cache location: $HF_HOME"
 
-# Download pre-quantized model from HuggingFace
+# Download pre-quantized model from HuggingFace (to shared storage)
 echo "Downloading pre-quantized model from HuggingFace..."
 hf download "{{ model_id }}"
 
