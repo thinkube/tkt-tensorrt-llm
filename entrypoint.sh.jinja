@@ -88,8 +88,24 @@ echo "✓ Model S3 Path: $MODEL_S3_PATH"
 # JuiceFS Gateway strips bucket name, so S3 "mlflow" bucket → POSIX root
 # S3 path: s3://mlflow/artifacts/RUN_ID/artifacts/model
 # JuiceFS path: /mnt/juicefs/artifacts/RUN_ID/artifacts/model (bucket name stripped)
-LOCAL_MODEL_PATH=$(echo "$MODEL_S3_PATH" | sed 's|s3://mlflow|/mnt/juicefs|')
-echo "✓ Local Model Path (JuiceFS): $LOCAL_MODEL_PATH"
+JUICEFS_MODEL_PATH=$(echo "$MODEL_S3_PATH" | sed 's|s3://mlflow|/mnt/juicefs|')
+echo "✓ JuiceFS Model Path: $JUICEFS_MODEL_PATH"
+
+# Create HuggingFace cache symlink structure
+# TensorRT-LLM CLI treats paths as strings and tries HF Hub download
+# By creating cache structure, TensorRT-LLM thinks model is already cached
+echo "Creating HuggingFace cache symlink..."
+HF_CACHE_DIR="$HOME/.cache/huggingface/hub"
+MODEL_NAME="{{ mlflow_model }}"
+# Convert model name to cache directory format (e.g., "org/model" → "models--org--model")
+CACHE_MODEL_DIR="$HF_CACHE_DIR/models--$(echo $MODEL_NAME | tr '/' '--')"
+mkdir -p "$CACHE_MODEL_DIR/snapshots"
+ln -sf "$JUICEFS_MODEL_PATH" "$CACHE_MODEL_DIR/snapshots/main"
+echo "✓ Created symlink: $CACHE_MODEL_DIR/snapshots/main → $JUICEFS_MODEL_PATH"
+
+# Use model name (not path) - TensorRT-LLM will find it in cache
+LOCAL_MODEL_PATH="$MODEL_NAME"
+echo "✓ Model reference: $LOCAL_MODEL_PATH (will load from cache)"
 
 # Create TensorRT-LLM API config
 cat > /tmp/extra-llm-api-config.yml <<EOF
@@ -102,8 +118,8 @@ cuda_graph_config:
 disable_overlap_scheduler: true
 EOF
 
-# Start TensorRT-LLM server in background (loading from JuiceFS POSIX filesystem!)
-echo "Starting TensorRT-LLM server (loading from JuiceFS)..."
+# Start TensorRT-LLM server in background (loading from HF cache symlink → JuiceFS POSIX!)
+echo "Starting TensorRT-LLM server (loading via HF cache symlink)..."
 trtllm-serve "$LOCAL_MODEL_PATH" \
   --backend pytorch \
   --max_batch_size 64 \
