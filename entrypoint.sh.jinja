@@ -84,11 +84,12 @@ fi
 
 echo "✓ Model S3 Path: $MODEL_S3_PATH"
 
-# Set S3 credentials for TensorRT-LLM
-export AWS_ACCESS_KEY_ID="seaweedfs"
-export AWS_SECRET_ACCESS_KEY="${SEAWEEDFS_PASSWORD:-Zh5EvRHAivHggdI85V4TwqG4jCJLlWEo}"
-export AWS_ENDPOINT_URL="http://seaweedfs-filer.seaweedfs.svc.cluster.local:8333"
-export AWS_DEFAULT_REGION="us-east-1"
+# Map S3 path to JuiceFS mount path
+# JuiceFS mounts the mlflow S3 bucket at /mlflow-models
+# S3 path: s3://mlflow/artifacts/RUN_ID/artifacts/model
+# JuiceFS path: /mlflow-models/artifacts/RUN_ID/artifacts/model
+LOCAL_MODEL_PATH=$(echo "$MODEL_S3_PATH" | sed 's|s3://mlflow|/mlflow-models|')
+echo "✓ Local Model Path (JuiceFS): $LOCAL_MODEL_PATH"
 
 # Create TensorRT-LLM API config
 cat > /tmp/extra-llm-api-config.yml <<EOF
@@ -101,9 +102,9 @@ cuda_graph_config:
 disable_overlap_scheduler: true
 EOF
 
-# Start TensorRT-LLM server in background (loading directly from S3!)
-echo "Starting TensorRT-LLM server (loading from S3)..."
-trtllm-serve "$MODEL_S3_PATH" \
+# Start TensorRT-LLM server in background (loading from JuiceFS POSIX filesystem!)
+echo "Starting TensorRT-LLM server (loading from JuiceFS)..."
+trtllm-serve "$LOCAL_MODEL_PATH" \
   --max_batch_size 64 \
   --trust_remote_code \
   --port 8355 \
