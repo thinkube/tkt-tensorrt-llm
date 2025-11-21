@@ -42,10 +42,10 @@ except Exception as e:
 # Configure MLflow
 os.environ['MLFLOW_TRACKING_TOKEN'] = token
 os.environ['MLFLOW_TRACKING_URI'] = 'http://mlflow.mlflow.svc.cluster.local:5000'
-os.environ['MLFLOW_S3_ENDPOINT_URL'] = 'http://seaweedfs-filer.seaweedfs.svc.cluster.local:8333'
+os.environ['MLFLOW_S3_ENDPOINT_URL'] = 'http://juicefs-mlflow-gateway.juicefs.svc.cluster.local:9001'
 os.environ['MLFLOW_S3_IGNORE_TLS'] = 'true'
-os.environ['AWS_ACCESS_KEY_ID'] = 'seaweedfs'
-os.environ['AWS_SECRET_ACCESS_KEY'] = os.environ.get('SEAWEEDFS_PASSWORD', 'Zh5EvRHAivHggdI85V4TwqG4jCJLlWEo')
+os.environ['AWS_ACCESS_KEY_ID'] = 'tkadmin'
+os.environ['AWS_SECRET_ACCESS_KEY'] = admin_password
 
 # Get model from MLflow
 try:
@@ -85,10 +85,10 @@ fi
 echo "✓ Model S3 Path: $MODEL_S3_PATH"
 
 # Map S3 path to JuiceFS mount path
-# JuiceFS mounts the mlflow S3 bucket at /mlflow-models
+# JuiceFS Gateway strips bucket name, so S3 "mlflow" bucket → POSIX root
 # S3 path: s3://mlflow/artifacts/RUN_ID/artifacts/model
-# JuiceFS path: /mlflow-models/artifacts/RUN_ID/artifacts/model
-LOCAL_MODEL_PATH=$(echo "$MODEL_S3_PATH" | sed 's|s3://mlflow|/mlflow-models|')
+# JuiceFS path: /mnt/juicefs/artifacts/RUN_ID/artifacts/model (bucket name stripped)
+LOCAL_MODEL_PATH=$(echo "$MODEL_S3_PATH" | sed 's|s3://mlflow|/mnt/juicefs|')
 echo "✓ Local Model Path (JuiceFS): $LOCAL_MODEL_PATH"
 
 # Create TensorRT-LLM API config

@@ -4,6 +4,12 @@ metadata:
   name: "{{ project_name }}"
 
 spec:
+  volumes:
+    - name: juicefs-mlflow
+      storageClass: juicefs-mlflow
+      accessModes: [ReadOnlyMany]
+      size: 1Gi  # Minimal, only for mount point
+
   containers:
     - name: inference
       build: .
@@ -11,7 +17,11 @@ spec:
       size: xlarge
       gpu:
         count: 1
-        memory: "80Gi"  # Models loaded directly from MLflow S3 storage
+        memory: "80Gi"  # Models loaded directly from JuiceFS POSIX mount
+      volumeMounts:
+        - name: juicefs-mlflow
+          mountPath: /mnt/juicefs
+          readOnly: true
       health: /health
       test:
         enabled: false  # Testing ML models requires GPU, skip in CI/CD
