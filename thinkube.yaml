@@ -4,25 +4,14 @@ metadata:
   name: "{{ project_name }}"
 
 spec:
-  volumes:
-    - name: juicefs-mlflow
-      storageClass: juicefs-mlflow
-      accessModes: [ReadOnlyMany]
-      size: 1Gi  # Minimal, only for mount point
-
   containers:
     - name: inference
       build: .
       port: 7860
       size: xlarge
-      ipc: host  # Unlimited shared memory for PyTorch/TensorRT-LLM model loading
       gpu:
         count: 1
-        memory: "80Gi"  # Models loaded directly from JuiceFS POSIX mount
-      volumeMounts:
-        - name: juicefs-mlflow
-          mountPath: /mnt/juicefs
-          readOnly: true
+        memory: "80Gi"  # Auto-gets: hostIPC=true + /mlflow-models mount
       health: /health
       test:
         enabled: false  # Testing ML models requires GPU, skip in CI/CD

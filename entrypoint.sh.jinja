@@ -98,8 +98,8 @@ echo "✓ Original HuggingFace Model ID: $ORIGINAL_MODEL_ID"
 # Map S3 path to JuiceFS mount path
 # JuiceFS Gateway strips bucket name, so S3 "mlflow" bucket → POSIX root
 # S3 path: s3://mlflow/artifacts/RUN_ID/artifacts/model
-# JuiceFS path: /mnt/juicefs/artifacts/RUN_ID/artifacts/model (bucket name stripped)
-JUICEFS_MODEL_PATH=$(echo "$MODEL_S3_PATH" | sed 's|s3://mlflow|/mnt/juicefs|')
+# JuiceFS path: /mlflow-models/artifacts/RUN_ID/artifacts/model (bucket name stripped, auto-mounted for GPU containers)
+JUICEFS_MODEL_PATH=$(echo "$MODEL_S3_PATH" | sed 's|s3://mlflow|/mlflow-models|')
 echo "✓ JuiceFS Model Path: $JUICEFS_MODEL_PATH"
 
 # Create HuggingFace cache symlink structure
@@ -108,7 +108,7 @@ echo "✓ JuiceFS Model Path: $JUICEFS_MODEL_PATH"
 echo "Creating HuggingFace cache symlink..."
 HF_CACHE_DIR="$HOME/.cache/huggingface/hub"
 # Convert model ID to cache directory format (e.g., "nvidia/model" → "models--nvidia--model")
-CACHE_MODEL_DIR="$HF_CACHE_DIR/models--$(echo $ORIGINAL_MODEL_ID | tr '/' '--')"
+CACHE_MODEL_DIR="$HF_CACHE_DIR/models--$(echo $ORIGINAL_MODEL_ID | sed 's|/|--|g')"
 mkdir -p "$CACHE_MODEL_DIR/snapshots"
 ln -sf "$JUICEFS_MODEL_PATH" "$CACHE_MODEL_DIR/snapshots/main"
 echo "✓ Created symlink: $CACHE_MODEL_DIR/snapshots/main → $JUICEFS_MODEL_PATH"
