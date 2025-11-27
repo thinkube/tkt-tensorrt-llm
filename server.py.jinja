@@ -10,6 +10,7 @@ import gradio as gr
 from fastapi import FastAPI
 import uvicorn
 from tensorrt_llm import LLM, SamplingParams
+from transformers import AutoTokenizer
 from thinkube_theme import create_thinkube_theme, THINKUBE_CSS
 
 # Model configuration from template parameter
@@ -19,27 +20,44 @@ MODEL_PATH = os.environ.get('MODEL_PATH')
 # Initialize FastAPI app
 app = FastAPI(title="{{ project_name }} TensorRT-LLM Server")
 
-# Global LLM instance (initialized in main block to support MPI)
+# Global LLM and tokenizer instances (initialized in main block to support MPI)
 llm = None
+tokenizer = None
 
 def initialize_model():
-    """Initialize TensorRT-LLM model (must be called from main block for MPI support)"""
-    global llm
+    """Initialize TensorRT-LLM model and tokenizer (must be called from main block for MPI support)"""
+    global llm, tokenizer
     print(f"Loading model from: {MODEL_PATH}")
     print(f"Model ID: {MODEL_ID}")
+
+    # Load tokenizer for chat template formatting
+    print("Loading tokenizer...")
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
+
+    # Load TensorRT-LLM model
+    print("Loading TensorRT-LLM model...")
     llm = LLM(model=MODEL_PATH)
-    print(f"✓ TensorRT-LLM model loaded successfully")
+
+    print(f"✓ TensorRT-LLM model and tokenizer loaded successfully")
 
 def generate_response(message: str, history: list, temperature: float = 0.7, max_tokens: int = 512):
-    """Generate response using TensorRT-LLM Python API"""
-    # Build conversation context from history
-    conversation = []
+    """Generate response using TensorRT-LLM Python API with harmony chat template"""
+    # Convert Gradio history to OpenAI messages format
+    messages = []
     for human, assistant in history:
-        conversation.append(f"User: {human}\nAssistant: {assistant}")
+        messages.append({"role": "user", "content": human})
+        messages.append({"role": "assistant", "content": assistant})
 
     # Add current message
-    conversation.append(f"User: {message}\nAssistant:")
-    prompt = "\n\n".join(conversation)
+    messages.append({"role": "user", "content": message})
+
+    # Apply chat template to format messages with harmony format
+    # This adds the special tokens like <|start|>, <|message|>, <|channel|>, etc.
+    prompt = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True
+    )
 
     # Configure sampling parameters
     sampling_params = SamplingParams(
