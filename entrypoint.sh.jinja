@@ -67,9 +67,22 @@ run_id = latest['run_id']
 
 print(f"Found model version {latest['version']} with run_id: {run_id}", file=sys.stderr)
 
-# Get artifact path from run_id
-# Models are stored at: /mlflow-models/artifacts/{run_id}/artifacts/model
-model_path = f'/mlflow-models/artifacts/{run_id}/artifacts/model'
+# Get run details to retrieve experiment_id
+run_response = requests.get(
+    f"{mlflow_url}/api/2.0/mlflow/runs/get",
+    params={'run_id': run_id},
+    headers={'Authorization': f'Bearer {access_token}'},
+    verify=False,
+    timeout=30
+)
+run_response.raise_for_status()
+experiment_id = run_response.json()['run']['info']['experiment_id']
+
+print(f"Experiment ID: {experiment_id}", file=sys.stderr)
+
+# Get artifact path from run_id with experiment_id
+# Models are stored at: /mlflow-models/artifacts/{experiment_id}/{run_id}/artifacts/model
+model_path = f'/mlflow-models/artifacts/{experiment_id}/{run_id}/artifacts/model'
 
 # Verify the path exists
 if not os.path.exists(model_path):
