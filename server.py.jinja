@@ -6,8 +6,11 @@ Uses TensorRT-LLM Python API for direct model loading
 """
 
 import os
+import json
+import time
 import gradio as gr
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 import uvicorn
 from tensorrt_llm import LLM, SamplingParams
 from transformers import AutoTokenizer
@@ -110,6 +113,126 @@ async def health_check():
             "status": "unhealthy",
             "error": str(e)
         }
+
+
+# ============================================================================
+# OpenAI-Compatible API Endpoints (for LiteLLM integration)
+# ============================================================================
+
+@app.post("/v1/chat/completions")
+async def openai_chat_completions(request: Request):
+    """OpenAI-compatible chat completions endpoint using TensorRT-LLM"""
+    try:
+        body = await request.json()
+        messages = body.get('messages', [])
+        temperature = body.get('temperature', 0.7)
+        max_tokens = body.get('max_tokens', 512)
+        stream = body.get('stream', False)
+        top_p = body.get('top_p', 0.9)
+
+        # Apply chat template (uses harmony format for Phi-4, chatml for others, etc.)
+        prompt = tokenizer.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True
+        )
+
+        # Configure sampling parameters
+        sampling_params = SamplingParams(
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=top_p
+        )
+
+        # Generate with TensorRT-LLM
+        outputs = llm.generate([prompt], sampling_params)
+        response_text = outputs[0].outputs[0].text
+
+        # Generate unique ID
+        completion_id = f"chatcmpl-{int(time.time() * 1000)}"
+        created = int(time.time())
+
+        if stream:
+            # Streaming response (simplified - sends full response in one chunk)
+            async def generate_stream():
+                chunk = {
+                    "id": completion_id,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": MODEL_ID,
+                    "choices": [{
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": response_text},
+                        "finish_reason": None
+                    }]
+                }
+                yield f"data: {json.dumps(chunk)}\n\n"
+
+                # Final chunk with finish_reason
+                final_chunk = {
+                    "id": completion_id,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": MODEL_ID,
+                    "choices": [{
+                        "index": 0,
+                        "delta": {},
+                        "finish_reason": "stop"
+                    }]
+                }
+                yield f"data: {json.dumps(final_chunk)}\n\n"
+                yield "data: [DONE]\n\n"
+
+            return StreamingResponse(
+                generate_stream(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+            )
+
+        # Non-streaming response
+        return JSONResponse({
+            "id": completion_id,
+            "object": "chat.completion",
+            "created": created,
+            "model": MODEL_ID,
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": response_text
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": 0,  # TensorRT-LLM doesn't expose token counts easily
+                "completion_tokens": 0,
+                "total_tokens": 0
+            }
+        })
+
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": {"message": str(e), "type": "internal_error"}}
+        )
+
+
+@app.get("/v1/models")
+async def openai_models():
+    """OpenAI-compatible models endpoint - returns available LLM model"""
+    return JSONResponse({
+        "object": "list",
+        "data": [{
+            "id": MODEL_ID,
+            "object": "model",
+            "created": int(time.time()),
+            "owned_by": "thinkube",
+            "permission": [],
+            "root": MODEL_ID,
+            "parent": None
+        }]
+    })
+
 
 # Mount Gradio app with Thinkube favicon
 app = gr.mount_gradio_app(
