@@ -125,31 +125,27 @@ import re
 def parse_harmony_response(text: str) -> dict:
     """
     Parse harmony format response to extract different channels.
-    Harmony format uses channels: analysis (reasoning), commentary (tools), final (response)
+    Harmony format uses specific markers like 'assistantfinal' (no spaces).
     Returns dict with 'final' (user-facing) and 'reasoning' (chain-of-thought) content.
+
+    Only matches exact harmony format markers to avoid truncating normal responses
+    that contain common words like 'final'.
     """
     result = {"final": text, "reasoning": None}
 
-    # Pattern: look for 'final' or 'assistantfinal' marker followed by content
-    # The format concatenates: "analysis<reasoning>assistantfinal<answer>" or similar
-    final_patterns = [
-        r'assistantfinal(.*)$',  # assistantfinal followed by content
-        r'(?:^|[^a-z])final(.*)$',  # final at word boundary followed by content
-    ]
-
-    for pattern in final_patterns:
-        match = re.search(pattern, text, re.IGNORECASE | re.DOTALL)
-        if match:
-            final_content = match.group(1).strip()
-            if final_content:
-                result["final"] = final_content
-                # Extract reasoning (everything before the final marker)
-                reasoning = text[:match.start()].strip()
-                # Remove 'analysis' prefix if present
-                reasoning = re.sub(r'^analysis\s*', '', reasoning, flags=re.IGNORECASE)
-                if reasoning:
-                    result["reasoning"] = reasoning
-                break
+    # Only match the specific harmony format marker: assistantfinal (one word, no spaces)
+    # This marker appears at the boundary between reasoning and final response
+    match = re.search(r'assistantfinal(.*)$', text, re.IGNORECASE | re.DOTALL)
+    if match:
+        final_content = match.group(1).strip()
+        if final_content:
+            result["final"] = final_content
+            # Extract reasoning (everything before the marker)
+            reasoning = text[:match.start()].strip()
+            # Remove 'analysis' prefix if present
+            reasoning = re.sub(r'^analysis\s*', '', reasoning, flags=re.IGNORECASE)
+            if reasoning:
+                result["reasoning"] = reasoning
 
     return result
 
