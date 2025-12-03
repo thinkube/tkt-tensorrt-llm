@@ -8,6 +8,7 @@ Uses TensorRT-LLM Python API for direct model loading
 import os
 import json
 import time
+import logging
 import gradio as gr
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -15,6 +16,10 @@ import uvicorn
 from tensorrt_llm import LLM, SamplingParams
 from transformers import AutoTokenizer
 from thinkube_theme import create_thinkube_theme, THINKUBE_CSS
+
+# Configure logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Model configuration from template parameter
 MODEL_ID = "{{ model_id }}"
@@ -169,6 +174,10 @@ async def openai_chat_completions(request: Request):
             add_generation_prompt=True
         )
 
+        logger.debug(f"=== API Request ===")
+        logger.debug(f"max_tokens: {max_tokens}, temperature: {temperature}, top_p: {top_p}")
+        logger.debug(f"Prompt length (chars): {len(prompt)}")
+
         # Configure sampling parameters
         sampling_params = SamplingParams(
             temperature=temperature,
@@ -179,10 +188,24 @@ async def openai_chat_completions(request: Request):
         # Generate with TensorRT-LLM
         outputs = llm.generate([prompt], sampling_params)
         raw_response = outputs[0].outputs[0].text
+        finish_reason = getattr(outputs[0].outputs[0], 'finish_reason', 'unknown')
+
+        logger.debug(f"=== Raw Response ===")
+        logger.debug(f"Length (chars): {len(raw_response)}")
+        logger.debug(f"Finish reason: {finish_reason}")
+        logger.debug(f"Content: {raw_response[:500]}...")
+        if len(raw_response) > 500:
+            logger.debug(f"...end: ...{raw_response[-200:]}")
 
         # Parse harmony format to extract final response
         parsed = parse_harmony_response(raw_response)
         response_text = parsed["final"]
+
+        logger.debug(f"=== Parsed Response ===")
+        logger.debug(f"Harmony parsing applied: {parsed['reasoning'] is not None}")
+        logger.debug(f"Final length (chars): {len(response_text)}")
+        if parsed['reasoning']:
+            logger.debug(f"Reasoning length: {len(parsed['reasoning'])}")
 
         # Optionally include reasoning in a separate field
         reasoning_text = parsed["reasoning"] if include_reasoning else None
