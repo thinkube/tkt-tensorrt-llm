@@ -190,22 +190,19 @@ async def openai_chat_completions(request: Request):
         raw_response = outputs[0].outputs[0].text
         finish_reason = getattr(outputs[0].outputs[0], 'finish_reason', 'unknown')
 
-        logger.debug(f"=== Raw Response ===")
-        logger.debug(f"Length (chars): {len(raw_response)}")
-        logger.debug(f"Finish reason: {finish_reason}")
-        logger.debug(f"Content: {raw_response[:500]}...")
-        if len(raw_response) > 500:
-            logger.debug(f"...end: ...{raw_response[-200:]}")
+        logger.info(f"=== Raw Response ===")
+        logger.info(f"Length (chars): {len(raw_response)}")
+        logger.info(f"Finish reason: {finish_reason}")
+        logger.info(f"RAW_RESPONSE_START>>>{raw_response}<<<RAW_RESPONSE_END")
 
         # Parse harmony format to extract final response
         parsed = parse_harmony_response(raw_response)
         response_text = parsed["final"]
 
-        logger.debug(f"=== Parsed Response ===")
-        logger.debug(f"Harmony parsing applied: {parsed['reasoning'] is not None}")
-        logger.debug(f"Final length (chars): {len(response_text)}")
-        if parsed['reasoning']:
-            logger.debug(f"Reasoning length: {len(parsed['reasoning'])}")
+        logger.info(f"=== Parsed Response ===")
+        logger.info(f"Harmony parsing applied: {parsed['reasoning'] is not None}")
+        logger.info(f"Final length (chars): {len(response_text)}")
+        logger.info(f"PARSED_RESPONSE_START>>>{response_text}<<<PARSED_RESPONSE_END")
 
         # Optionally include reasoning in a separate field
         reasoning_text = parsed["reasoning"] if include_reasoning else None
