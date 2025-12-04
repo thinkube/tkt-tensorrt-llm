@@ -185,10 +185,10 @@ async def openai_chat_completions(request: Request):
             top_p=top_p
         )
 
-        # Generate with TensorRT-LLM
-        outputs = llm.generate([prompt], sampling_params)
-        raw_response = outputs[0].outputs[0].text
-        finish_reason = getattr(outputs[0].outputs[0], 'finish_reason', 'unknown')
+        # Generate with TensorRT-LLM (async to handle concurrent requests)
+        output = await llm.generate_async(prompt, sampling_params)
+        raw_response = output.outputs[0].text
+        finish_reason = getattr(output.outputs[0], 'finish_reason', 'unknown')
 
         logger.info(f"=== Raw Response ===")
         logger.info(f"Length (chars): {len(raw_response)}")
