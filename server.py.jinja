@@ -339,7 +339,6 @@ async def batch_completions(request: Request):
     }
     """
     import gc
-    import torch
 
     try:
         start_time = time.time()
@@ -408,10 +407,11 @@ async def batch_completions(request: Request):
 
             chunks_processed += 1
 
-            # Memory cleanup between chunks to prevent accumulation
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            gc.collect()
+            # Memory cleanup between chunks (wrapped in try/except for TensorRT-LLM compatibility)
+            try:
+                gc.collect()
+            except Exception as cleanup_error:
+                logger.warning(f"Memory cleanup warning: {cleanup_error}")
 
         processing_time_ms = int((time.time() - start_time) * 1000)
         logger.info(f"Batch completed: {total_requests} prompts in {chunks_processed} chunks, {processing_time_ms}ms total ({processing_time_ms/total_requests:.0f}ms/prompt)")
@@ -428,9 +428,10 @@ async def batch_completions(request: Request):
     except Exception as e:
         logger.error(f"Batch error: {e}")
         # Memory cleanup on error
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        gc.collect()
+        try:
+            gc.collect()
+        except:
+            pass
         return JSONResponse(
             status_code=500,
             content={"error": {"message": str(e), "type": "internal_error"}}
