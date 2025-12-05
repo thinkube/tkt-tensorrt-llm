@@ -303,13 +303,19 @@ async def openai_models():
 # Batch Completions Endpoint (for parallel data generation)
 # ============================================================================
 
+# DGX Spark unified memory constraint: 20B model leaves limited headroom
+# Batch size 2 with 800 max_tokens is safe; larger batches processed in chunks
+MAX_BATCH_SIZE = 2
+
 @app.post("/v1/batch/completions")
 async def batch_completions(request: Request):
     """
     Batch completions endpoint for parallel inference.
 
-    Accepts multiple prompts and processes them in a single GPU batch,
+    Accepts multiple prompts and processes them in GPU batches,
     providing significant speedup over sequential requests.
+
+    Large batches are automatically chunked to prevent OOM on unified memory.
 
     Request format:
     {
@@ -328,9 +334,13 @@ async def batch_completions(request: Request):
             ...
         ],
         "batch_size": N,
-        "processing_time_ms": X
+        "processing_time_ms": X,
+        "chunks_processed": Y
     }
     """
+    import gc
+    import torch
+
     try:
         start_time = time.time()
         body = await request.json()
@@ -342,12 +352,12 @@ async def batch_completions(request: Request):
                 content={"error": {"message": "No requests provided", "type": "invalid_request"}}
             )
 
-        batch_size = len(requests_list)
-        logger.info(f"=== Batch Request === size={batch_size}")
+        total_requests = len(requests_list)
+        logger.info(f"=== Batch Request === total={total_requests}, max_chunk={MAX_BATCH_SIZE}")
 
         # Prepare all prompts and sampling params
-        prompts = []
-        sampling_params_list = []
+        all_prompts = []
+        all_params = []
 
         for req in requests_list:
             messages = req.get('messages', [])
@@ -355,57 +365,72 @@ async def batch_completions(request: Request):
             max_tokens = req.get('max_tokens', 512)
             top_p = req.get('top_p', 0.9)
 
-            # Apply chat template
             prompt = tokenizer.apply_chat_template(
                 messages,
                 tokenize=False,
                 add_generation_prompt=True
             )
-            prompts.append(prompt)
-
-            # Each request can have different sampling params
-            sampling_params_list.append(SamplingParams(
+            all_prompts.append(prompt)
+            all_params.append(SamplingParams(
                 temperature=temperature,
                 max_tokens=max_tokens,
                 top_p=top_p
             ))
 
-        # Use the first request's params for the batch (TensorRT-LLM limitation)
-        # For true per-request params, we'd need multiple generate calls
-        # But batching with same params is still faster than sequential
-        batch_sampling_params = sampling_params_list[0]
+        # Process in chunks to prevent OOM
+        all_responses = []
+        chunks_processed = 0
 
-        # Generate all prompts in a single batch
-        logger.info(f"Generating batch of {batch_size} prompts...")
-        outputs = llm.generate(prompts, batch_sampling_params)
+        for i in range(0, total_requests, MAX_BATCH_SIZE):
+            chunk_prompts = all_prompts[i:i + MAX_BATCH_SIZE]
+            chunk_params = all_params[i:i + MAX_BATCH_SIZE]
+            chunk_size = len(chunk_prompts)
 
-        # Process responses
-        responses = []
-        for i, output in enumerate(outputs):
-            raw_response = output.outputs[0].text
-            finish_reason = getattr(output.outputs[0], 'finish_reason', 'stop')
+            logger.info(f"Processing chunk {chunks_processed + 1}: {chunk_size} prompts (indices {i}-{i + chunk_size - 1})")
 
-            # Parse harmony format
-            parsed = parse_harmony_response(raw_response)
+            # Use first request's params for this chunk
+            batch_sampling_params = chunk_params[0]
 
-            responses.append({
-                "content": parsed["final"],
-                "finish_reason": str(finish_reason) if finish_reason else "stop",
-                "reasoning": parsed.get("reasoning")
-            })
+            # Generate this chunk
+            outputs = llm.generate(chunk_prompts, batch_sampling_params)
+
+            # Process responses
+            for output in outputs:
+                raw_response = output.outputs[0].text
+                finish_reason = getattr(output.outputs[0], 'finish_reason', 'stop')
+                parsed = parse_harmony_response(raw_response)
+
+                all_responses.append({
+                    "content": parsed["final"],
+                    "finish_reason": str(finish_reason) if finish_reason else "stop",
+                    "reasoning": parsed.get("reasoning")
+                })
+
+            chunks_processed += 1
+
+            # Memory cleanup between chunks to prevent accumulation
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            gc.collect()
 
         processing_time_ms = int((time.time() - start_time) * 1000)
-        logger.info(f"Batch completed: {batch_size} prompts in {processing_time_ms}ms ({processing_time_ms/batch_size:.0f}ms/prompt)")
+        logger.info(f"Batch completed: {total_requests} prompts in {chunks_processed} chunks, {processing_time_ms}ms total ({processing_time_ms/total_requests:.0f}ms/prompt)")
 
         return JSONResponse({
-            "responses": responses,
-            "batch_size": batch_size,
+            "responses": all_responses,
+            "batch_size": total_requests,
             "processing_time_ms": processing_time_ms,
-            "avg_time_per_prompt_ms": processing_time_ms / batch_size
+            "avg_time_per_prompt_ms": processing_time_ms / total_requests,
+            "chunks_processed": chunks_processed,
+            "max_chunk_size": MAX_BATCH_SIZE
         })
 
     except Exception as e:
         logger.error(f"Batch error: {e}")
+        # Memory cleanup on error
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        gc.collect()
         return JSONResponse(
             status_code=500,
             content={"error": {"message": str(e), "type": "internal_error"}}
