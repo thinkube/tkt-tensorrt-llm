@@ -299,6 +299,119 @@ async def openai_models():
     })
 
 
+# ============================================================================
+# Batch Completions Endpoint (for parallel data generation)
+# ============================================================================
+
+@app.post("/v1/batch/completions")
+async def batch_completions(request: Request):
+    """
+    Batch completions endpoint for parallel inference.
+
+    Accepts multiple prompts and processes them in a single GPU batch,
+    providing significant speedup over sequential requests.
+
+    Request format:
+    {
+        "requests": [
+            {"messages": [...], "max_tokens": 512, "temperature": 0.7},
+            {"messages": [...], "max_tokens": 512, "temperature": 0.7},
+            ...
+        ]
+    }
+
+    Response format:
+    {
+        "responses": [
+            {"content": "...", "finish_reason": "stop"},
+            {"content": "...", "finish_reason": "stop"},
+            ...
+        ],
+        "batch_size": N,
+        "processing_time_ms": X
+    }
+    """
+    try:
+        start_time = time.time()
+        body = await request.json()
+        requests_list = body.get('requests', [])
+
+        if not requests_list:
+            return JSONResponse(
+                status_code=400,
+                content={"error": {"message": "No requests provided", "type": "invalid_request"}}
+            )
+
+        batch_size = len(requests_list)
+        logger.info(f"=== Batch Request === size={batch_size}")
+
+        # Prepare all prompts and sampling params
+        prompts = []
+        sampling_params_list = []
+
+        for req in requests_list:
+            messages = req.get('messages', [])
+            temperature = req.get('temperature', 0.7)
+            max_tokens = req.get('max_tokens', 512)
+            top_p = req.get('top_p', 0.9)
+
+            # Apply chat template
+            prompt = tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True
+            )
+            prompts.append(prompt)
+
+            # Each request can have different sampling params
+            sampling_params_list.append(SamplingParams(
+                temperature=temperature,
+                max_tokens=max_tokens,
+                top_p=top_p
+            ))
+
+        # Use the first request's params for the batch (TensorRT-LLM limitation)
+        # For true per-request params, we'd need multiple generate calls
+        # But batching with same params is still faster than sequential
+        batch_sampling_params = sampling_params_list[0]
+
+        # Generate all prompts in a single batch
+        logger.info(f"Generating batch of {batch_size} prompts...")
+        outputs = llm.generate(prompts, batch_sampling_params)
+
+        # Process responses
+        responses = []
+        for i, output in enumerate(outputs):
+            raw_response = output.outputs[0].text
+            finish_reason = getattr(output.outputs[0], 'finish_reason', 'stop')
+
+            # Parse harmony format
+            parsed = parse_harmony_response(raw_response)
+
+            responses.append({
+                "content": parsed["final"],
+                "finish_reason": str(finish_reason) if finish_reason else "stop",
+                "reasoning": parsed.get("reasoning")
+            })
+
+        processing_time_ms = int((time.time() - start_time) * 1000)
+        logger.info(f"Batch completed: {batch_size} prompts in {processing_time_ms}ms ({processing_time_ms/batch_size:.0f}ms/prompt)")
+
+        return JSONResponse({
+            "responses": responses,
+            "batch_size": batch_size,
+            "processing_time_ms": processing_time_ms,
+            "avg_time_per_prompt_ms": processing_time_ms / batch_size
+        })
+
+    except Exception as e:
+        logger.error(f"Batch error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": {"message": str(e), "type": "internal_error"}}
+        )
+
+
 # Mount Gradio app with Thinkube favicon
 app = gr.mount_gradio_app(
     app,
