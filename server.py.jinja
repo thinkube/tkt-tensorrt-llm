@@ -71,10 +71,12 @@ def generate_response(message: str, history: list, temperature: float = 0.7, max
     )
 
     # Configure sampling parameters
+    # skip_special_tokens=False preserves harmony format tokens for parsing
     sampling_params = SamplingParams(
         temperature=temperature,
         max_tokens=max_tokens,
-        top_p=0.9
+        top_p=0.9,
+        skip_special_tokens=False
     )
 
     # Generate with TensorRT-LLM Python API
@@ -82,8 +84,7 @@ def generate_response(message: str, history: list, temperature: float = 0.7, max
 
     # Extract and parse response (remove harmony format reasoning)
     raw_text = outputs[0].outputs[0].text
-    token_ids = outputs[0].outputs[0].token_ids
-    parsed = parse_harmony_response(token_ids, fallback_text=raw_text)
+    parsed = parse_harmony_response(raw_text)
     yield parsed["final"]
 
 # Create Thinkube-styled Gradio interface
@@ -133,22 +134,23 @@ async def health_check():
 _harmony_enc = load_harmony_encoding(HarmonyEncodingName.HARMONY_GPT_OSS)
 
 
-def parse_harmony_response(token_ids: list, fallback_text: str = "") -> dict:
+def parse_harmony_response(text: str) -> dict:
     """
     Parse harmony format response to extract different channels.
-    Uses the official openai-harmony package with raw token IDs.
+    Uses the official openai-harmony package.
     Returns dict with 'final' (user-facing) and 'reasoning' (chain-of-thought) content.
 
     Args:
-        token_ids: Raw token IDs from TensorRT-LLM output
-        fallback_text: Detokenized text to use if parsing fails
+        text: Raw text from TensorRT-LLM output (with skip_special_tokens=False)
     """
-    result = {"final": fallback_text, "reasoning": None}
+    result = {"final": text, "reasoning": None}
 
     try:
-        # Parse directly from token IDs (not re-encoded text)
+        # Encode text to tokens, allowing harmony special tokens
+        tokens = _harmony_enc.encode(text, allowed_special="all")
+        # Parse the tokens into messages
         messages = _harmony_enc.parse_messages_from_completion_tokens(
-            token_ids, role=Role.ASSISTANT, strict=False
+            tokens, role=Role.ASSISTANT, strict=False
         )
 
         # Extract content by channel
@@ -244,7 +246,8 @@ async def _handle_batch_completions(body: dict, batch_requests: list):
     sampling_params = SamplingParams(
         temperature=first_req.get('temperature', default_temperature),
         max_tokens=first_req.get('max_tokens', default_max_tokens),
-        top_p=first_req.get('top_p', default_top_p)
+        top_p=first_req.get('top_p', default_top_p),
+        skip_special_tokens=False
     )
 
     # Process in chunks to prevent OOM (same as /v1/batch/completions)
@@ -276,9 +279,8 @@ async def _handle_batch_completions(body: dict, batch_requests: list):
         # Process responses
         for j, output in enumerate(outputs):
             raw_text = output.outputs[0].text
-            token_ids = output.outputs[0].token_ids
             finish_reason = getattr(output.outputs[0], 'finish_reason', 'stop')
-            parsed = parse_harmony_response(token_ids, fallback_text=raw_text)
+            parsed = parse_harmony_response(raw_text)
 
             choice = {
                 "index": i + j,
@@ -366,26 +368,26 @@ async def openai_chat_completions(request: Request):
         logger.info(f"Prompt length (chars): {len(prompt)}")
 
         # Configure sampling parameters
+        # skip_special_tokens=False preserves harmony format tokens for parsing
         sampling_params = SamplingParams(
             temperature=temperature,
             max_tokens=max_tokens,
-            top_p=top_p
+            top_p=top_p,
+            skip_special_tokens=False
         )
 
         # Generate with TensorRT-LLM (async to handle concurrent requests)
         output = await llm.generate_async(prompt, sampling_params)
         raw_text = output.outputs[0].text
-        token_ids = output.outputs[0].token_ids
         finish_reason = getattr(output.outputs[0], 'finish_reason', 'unknown')
 
         logger.info(f"=== Raw Response ===")
-        logger.info(f"Length (chars): {len(raw_text)}, tokens: {len(token_ids)}")
-        logger.info(f"token_ids type: {type(token_ids)}, first few: {token_ids[:5] if token_ids else 'empty'}")
+        logger.info(f"Length (chars): {len(raw_text)}")
         logger.info(f"Finish reason: {finish_reason}")
         logger.info(f"RAW_RESPONSE_START>>>{raw_text}<<<RAW_RESPONSE_END")
 
-        # Parse harmony format to extract final response (using raw token IDs)
-        parsed = parse_harmony_response(token_ids, fallback_text=raw_text)
+        # Parse harmony format to extract final response
+        parsed = parse_harmony_response(raw_text)
         response_text = parsed["final"]
 
         logger.info(f"=== Parsed Response ===")
@@ -562,7 +564,8 @@ async def batch_completions(request: Request):
             all_params.append(SamplingParams(
                 temperature=temperature,
                 max_tokens=max_tokens,
-                top_p=top_p
+                top_p=top_p,
+                skip_special_tokens=False
             ))
 
         # Process in chunks to prevent OOM
@@ -603,9 +606,8 @@ async def batch_completions(request: Request):
             # Process responses
             for output in outputs:
                 raw_text = output.outputs[0].text
-                token_ids = output.outputs[0].token_ids
                 finish_reason = getattr(output.outputs[0], 'finish_reason', 'stop')
-                parsed = parse_harmony_response(token_ids, fallback_text=raw_text)
+                parsed = parse_harmony_response(raw_text)
 
                 all_responses.append({
                     "content": parsed["final"],
