@@ -380,6 +380,7 @@ async def openai_chat_completions(request: Request):
 
         logger.info(f"=== Raw Response ===")
         logger.info(f"Length (chars): {len(raw_text)}, tokens: {len(token_ids)}")
+        logger.info(f"token_ids type: {type(token_ids)}, first few: {token_ids[:5] if token_ids else 'empty'}")
         logger.info(f"Finish reason: {finish_reason}")
         logger.info(f"RAW_RESPONSE_START>>>{raw_text}<<<RAW_RESPONSE_END")
 
