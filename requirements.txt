@@ -14,4 +14,4 @@ openai>=1.0.0
 gradio>=4.42.0
 
 # OpenAI Harmony - Official parser for gpt-oss harmony format responses
-openai-harmony>=0.1.0
+openai-harmony>=0.0.8
