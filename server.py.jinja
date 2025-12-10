@@ -137,7 +137,7 @@ _harmony_enc = load_harmony_encoding(HarmonyEncodingName.HARMONY_GPT_OSS)
 # ============================================================================
 # Tool Calling Support (OpenAI-compatible tools -> Harmony format)
 # ============================================================================
-
+{% raw %}
 def convert_tools_to_harmony_namespace(tools: list) -> str:
     """
     Convert OpenAI tools format to harmony namespace TypeScript-style definition.
@@ -193,7 +193,8 @@ def convert_tools_to_harmony_namespace(tools: list) -> str:
                 comment = f" // {pdesc}" if pdesc else ""
                 param_lines.append(f"    {pname}{optional}: {ts_type},{comment}")
 
-            lines.append(f"  type {name} = (_: {{")
+            # Use string concatenation to avoid Jinja template confusion with braces
+            lines.append("  type " + name + " = (_: {")
             lines.extend(param_lines)
             lines.append("  }) => any;")
         lines.append("")
@@ -284,6 +285,7 @@ def parse_harmony_response(text: str) -> dict:
         "reasoning": ''.join(reasoning_parts) if reasoning_parts else None,
         "tool_calls": tool_calls if tool_calls else None
     }
+{% endraw %}
 
 
 async def _handle_batch_completions(body: dict, batch_requests: list):
