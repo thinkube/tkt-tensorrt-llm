@@ -255,17 +255,10 @@ def parse_harmony_response(text: str) -> dict:
             tokens, role=Role.ASSISTANT, strict=False
         )
     except Exception as e:
-        # Parsing failed - return raw text as fallback with error info
-        # Strip harmony tokens for readability
-        import re
-        clean_text = re.sub(r'<\|[^|]+\|>', '', text).strip()
-        logger.warning(f"Harmony parsing failed: {e}. Returning raw text as fallback.")
-        return {
-            "final": clean_text if clean_text else text,
-            "reasoning": None,
-            "tool_calls": None,
-            "parse_error": str(e)
-        }
+        # Raise with detailed error info - let the endpoint return a proper HTTP error
+        logger.error(f"Harmony parsing failed: {e}")
+        logger.error(f"Raw text: {text}")
+        raise ValueError(f"Harmony parsing failed: {e}") from e
 
     final_parts = []
     reasoning_parts = []
