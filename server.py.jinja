@@ -237,14 +237,35 @@ def parse_harmony_response(text: str) -> dict:
     - 'final': user-facing response
     - 'reasoning': chain-of-thought (analysis channel)
     - 'tool_calls': list of tool calls [{id, type, function: {name, arguments}}]
+    - 'parse_error': error message if parsing failed (with raw text as fallback)
 
     Args:
         text: Raw text from TensorRT-LLM output (with skip_special_tokens=False)
     """
-    tokens = _harmony_enc.encode(text, allowed_special="all")
-    messages = _harmony_enc.parse_messages_from_completion_tokens(
-        tokens, role=Role.ASSISTANT, strict=False
-    )
+    # TensorRT-LLM returns only the completion, not the generation prompt.
+    # The harmony parser expects <|start|>assistant at the beginning, but TensorRT-LLM
+    # excludes it since it was part of the prompt. Prepend it for proper parsing.
+    # See: https://github.com/openai/harmony/issues/80
+    if not text.startswith("<|start|>"):
+        text = "<|start|>assistant" + text
+
+    try:
+        tokens = _harmony_enc.encode(text, allowed_special="all")
+        messages = _harmony_enc.parse_messages_from_completion_tokens(
+            tokens, role=Role.ASSISTANT, strict=False
+        )
+    except Exception as e:
+        # Parsing failed - return raw text as fallback with error info
+        # Strip harmony tokens for readability
+        import re
+        clean_text = re.sub(r'<\|[^|]+\|>', '', text).strip()
+        logger.warning(f"Harmony parsing failed: {e}. Returning raw text as fallback.")
+        return {
+            "final": clean_text if clean_text else text,
+            "reasoning": None,
+            "tool_calls": None,
+            "parse_error": str(e)
+        }
 
     final_parts = []
     reasoning_parts = []
