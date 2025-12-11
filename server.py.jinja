@@ -54,8 +54,10 @@ def initialize_model():
     tokenizer = AutoTokenizer.from_pretrained(MODEL_PATH)
 
     # Load TensorRT-LLM model
+    # max_num_tokens sets KV-cache size (total context: input + output)
+    # Default is 8192 which is too small for multi-turn agent conversations
     print("Loading TensorRT-LLM model...")
-    llm = LLM(model=MODEL_PATH)
+    llm = LLM(model=MODEL_PATH, max_num_tokens=131072)
 
     print(f"✓ TensorRT-LLM model and tokenizer loaded successfully")
 
