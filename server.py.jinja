@@ -103,6 +103,7 @@ thinkube_theme = create_thinkube_theme()
 
 demo = gr.ChatInterface(
     generate_response,
+    type="messages",  # Use OpenAI-style message format for history
     title="{{ project_title | default(project_name) }}",
     description=f"Chat with {MODEL_ID} (powered by TensorRT-LLM with NVFP4)",
     examples=[
