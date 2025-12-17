@@ -69,12 +69,34 @@ def generate_response(message: str, history: list, temperature: float = 0.7, max
     """Generate response via trtllm-serve backend with harmony chat template"""
     import httpx
 
-    # Gradio 6.x uses OpenAI-style message format for history
-    # history is already a list of {"role": "user"|"assistant", "content": ...}
-    messages = list(history)  # Copy history
+    logger.info(f"=== Gradio generate_response ===")
+    logger.info(f"message type: {type(message)}, value: {message!r}")
+    logger.info(f"history type: {type(history)}, length: {len(history) if history else 0}")
+    if history:
+        logger.info(f"history[0] type: {type(history[0]) if history else 'N/A'}")
+        logger.info(f"history sample: {history[:2]}")
+
+    # Build messages list from history
+    messages = []
+    if history:
+        for item in history:
+            if isinstance(item, dict):
+                # Already in message format
+                messages.append(item)
+            elif isinstance(item, (list, tuple)) and len(item) == 2:
+                # Old tuple format: (user_msg, assistant_msg)
+                user_msg, assistant_msg = item
+                if user_msg:
+                    messages.append({"role": "user", "content": str(user_msg)})
+                if assistant_msg:
+                    messages.append({"role": "assistant", "content": str(assistant_msg)})
+            else:
+                logger.warning(f"Unknown history item format: {type(item)}, {item!r}")
 
     # Add current message
-    messages.append({"role": "user", "content": message})
+    messages.append({"role": "user", "content": str(message)})
+
+    logger.info(f"Final messages to send: {messages}")
 
     # Call trtllm-serve backend (OpenAI-compatible API)
     # The backend handles chat template application internally
@@ -90,6 +112,8 @@ def generate_response(message: str, history: list, temperature: float = 0.7, max
                 "stop": HARMONY_STOP_TOKENS,
             }
         )
+        if response.status_code != 200:
+            logger.error(f"Backend error {response.status_code}: {response.text[:2000]}")
         response.raise_for_status()
         result = response.json()
 
